@@ -1,0 +1,659 @@
+---
+title: "A study of the NBA dataset for season 2014-2015"
+author: "Stefanidou Evdoxia"
+email: "MAT022 Coursework"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+
+fontsize: 11pt
+fontfamily: times
+geometry: margin=1in
+
+output:
+  bookdown::pdf_document2:
+
+    toc: true
+    number_sections: true
+    keep_tex: true 
+    citation_package: natbib
+    fig_caption: true
+    latex_engine: xelatex
+    #toc_depth: 1
+
+    highlight: haddock 
+    df_print: kable
+    extra_dependencies:
+      caption: ["labelfont={bf}"]
+    #pdf_document:
+    #  extra_dependencies: ["flafter"]
+    #pdf_document2:
+    #  extra_dependencies: ["float"]
+
+bibliography: [refs.bib]
+biblio-style: apalike
+link-citations: yes
+
+abstract: We demonstrate how various descriptive and inferential statistical methods can be applied to the NBA dataset for the season 2014-2015 to get useful insights from the data. We study two main factors that can affect the outcome of a game, the home-court advantage and the rest days between the games. Both of them show that they  significantly affecting the outcome of the game for the home team but do not indicate the same for the away team.  Also, we give some insight for the two factors at the teams level.
+---
+
+
+
+<!-- set knitr options here -->
+
+```{r setup, include=FALSE}
+install.packages("knitr", repos="http://cran.us.r-project.org")
+install.packages("tidyverse", repos="http://cran.us.r-project.org")
+install.packages("kableExtra", repos="http://cran.us.r-project.org")
+install.packages("xelatex", repos="http://cran.us.r-project.org")
+library(knitr)
+library(tidyverse)
+library(kableExtra)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(corrplot)
+library(Hmisc)
+library(car)
+library(ppcor)
+library(ggpubr)
+library(MASS)
+library(pROC)
+library(ggplot2)
+library(gridExtra)
+library(plyr)
+library(expss)
+library(plyr)
+library('gplots')
+library(vcd)
+library(expss)
+library(dplyr)
+library(knitr)
+library(tidyverse)
+library(kableExtra)
+library("ggpubr")
+library(lmtest)
+library(tidyverse)
+library(caret)
+theme_set(theme_bw())
+
+# read data
+df<- read.csv("nbadata.csv", header=TRUE)
+```
+
+
+
+<!-- main body starts here -->
+
+
+# Introduction{#sec:intro}
+
+
+National Basketball Association is a men's professional basketball league based in North America. The league involves 30 competing teams, playing throughout October to April for the regular season, and each team is playing 82 games. This report's primary purpose is to analyze the data from 2014–15 for the regular season of the National Basketball Association (NBA), a total of 904 games. The data contains information about 30 teams, 128 thousand NBA shots (rows) and 23  different characteristics considering the shots (columns). The name of the columns are self-explanatory and are presenting below : 
+
+```{r, echo = FALSE}
+noquote('Variables names:')
+print(names(df))
+```
+
+In this study, we will focus on "W", "LOCATION", "GAME_ID", "HOME_TEAM", "AWAY_TEAM", and "FINAL_MARGIN" and we will try to analyze them to get insights concerning the game outcome. Driven from the dataset's information, we can produce meaningful results about whether some factors are crucial for winning an NBA game and how much advantage they provide in the final game outcome.
+
+
+# Background and Purpose of the Study
+
+
+Our purpose in the first phase is to investigate whether playing at "home" or "away" is a factor that affects the outcome of a game in the session of 2014-2015. Based on the literature review, home-court advantage is mainly affected by the game location, travel status, psychological and behavioural factors (Carron et al.,2005).  When a team plays at home court is estimated to have a 4.68 ± 0.28 points advantage against the "away" team (Harville and Smith,1994). This advantage is mainly credited to the crowd's support and the confidence of winning the home players (Schwartz and Barsky, 1977). We aim to investigate if this phenomenon appears in our dataset by focusing on the "location" of the teams. Therefore, drawing upon the literature findings, we argue that the means on winning ratios of "home" and "away" win does not show any significant difference, H0:mA=mB where ma= mean of winning ratio in home court and mb= mean of winning ratio in away court(Null Hypothesis). We aim to estimate the amount of home-court advantage, if it exists in this dataset.  
+
+In the second phase, we want to explore if rest days affects the outcome of a game. Based on the literature review, one main factor affecting the outcome and the home-court advantage is the travel factor and specifically how number of rest days affect the game's outcome (Courneya and Carron, 1992). Home teams have an advantage over the away teams. The NBA schedule ensures that home teams play on average once every two days. Away teams have a more tight schedule as they play back to back games with only one day gap between the games used for travelling to the opponent team's home court (Nevill and Holder, 1999). As a consequence of this schedule, visiting or away teams are more tired than their home team opponents. Therefore, we will try to identify if rest days can explain a part of a game's outcome .
+
+
+```{r, include=FALSE}
+# converting "W" to 0 for lost game and 1 for wined game
+df[, "W"] <- as.character(df[, "W"])
+
+
+for (i in 1:nrow(df)) {
+  if (df[i, "W"] == "W") df[i, "W"] <- 1
+  if (df[i, "W"] == "L") df[i, "W"] <- 0
+}
+
+
+df[, "W"] <- as.numeric(df[, "W"])
+
+
+#  adding new column "WINNER" to identify if the winner is the home or the away team. 
+for (i in 1:nrow(df)) {
+    if ((df$W[i] == 1) & (df$LOCATION[i] == "H")) df$WINNER[i] <- "HOME" 
+    if ((df$W[i] == 0) & (df$LOCATION[i] == "H")) df$WINNER[i] <- "AWAY"
+    if ((df$W[i] == 1) & (df$LOCATION[i] == "A")) df$WINNER[i] <- "AWAY" 
+    if ((df$W[i] == 0) & (df$LOCATION[i] == "A")) df$WINNER[i] <- "HOME"
+}
+
+
+ df[, "GAME_ID"] <- as.factor(df[, "GAME_ID"])
+ #str(df)
+
+```
+
+
+# First part: Effect of home court advantage on game outcome{#sec:home-cort}
+
+## Descriptive analysis and methodology{#sec:home-cort-methodology}
+
+The first part of the analysis focuses on investigating whether playing at home court gives an advantage at the overall outcome of the game and at team level. Also, we will try to identify how much is the actual home-court advantage. Therefore, we transformed the original data to extract the necessary informations. We encode the column "W" from the original dataset, to 1 for win and 0 for losing . Then we create a new column named "WINNER", which have as values "HOME" when the home team wins and "AWAY" when the away team wins. A new data frame is created containing 6 features ("GAME_ID","HOME_TEAM","AWAY_TEAM","LOCATION", "FINAL_MARGIN","WINNER"). We strip out duplicates by "GAME_ID" and the dataframe does not contain any missing values. We further analyze this data to extract useful informations and finally create a data frame containing "TEAMS", "HOME_WINS", "AWAY_WINS", "TOTAL_HOME_GAMES", "TOTAL_AWAY_GAMES", "HOME_WIN_RATIO", "AWAY_WIN_RATIO", "DIFFRENCES_%" and "TOTAL_WIN_RATIO". The name of the columns is self-explanatory. The ratios were calculated for each team as the number of home/away wins expressed as a percentage of the total number of games played at home/away. The "DIFFRENCES_%" column contains the difference of home and away win ratios, and finally, the  "TOTAL_WIN_RATIO" is calculated as the total number of wins expressed as a percentage of the total games played by each team. The dataset has 30 rows corresponding to the teams. Finally, we set the significance level at 0.05, which means that if the chosen statistic resulted in a p-value higher than the alpha level, we do not have enough evidence to reject the null hypothesis. 
+
+
+```{r, include=FALSE}
+# create new dataframe 
+df1 <- df[c(1,3,4,7,9,24)]
+
+#str(df1)
+
+# examin for missing values on the subset
+apply(apply(df1,2,is.na),2,sum)
+
+# strip out suplicates by "game id"
+df12 <- df1[!duplicated(df1[('GAME_ID')]),]
+
+#str(df12)
+
+#summary(df12)
+```
+
+```{r , echo=FALSE, }
+# summarize wins by home and away
+df12 = apply_labels(df12,
+                      WINNER = "WINS BY :",
+                      WINNER = c("HOME TEAM" = "HOME",
+                                 "AWAY TEAM" ="AWAY"),
+                       HOME_TEAM = "When team in subject is home team",
+                       AWAY_TEAM ="When team in subject is away team"                                                               
+)
+
+
+# table with counts
+counts = calculate(df12, cro(list(WINNER), list("Count")))
+
+# table with percents
+percents = calculate(df12, cro_cpct(list(WINNER), list("Percents ")))
+
+# combine tables
+kok<-counts %merge% percents
+
+kak <- data.frame(kok)
+
+knitr::kable(
+  kak, 
+  caption = 'The number of games won by away and home teams and their respective percentages. ',
+  align = 'cccc',
+  booktabs = TRUE)%>%kable_styling(latex_options = "HOLD_position") 
+
+
+```
+
+
+An inspection between the number of home and away wins as the Table 1 shows is 56% of the games were won by home teams which account for 108 more games from the away wins. The median of home final margin is 2 implying that there might be  is a home-court advantage. Also, from the inspection of each team, as Figure 1 shows, 28 teams had more wins in the home court with a maximum difference of 10 from the "POR" team. Only two teams had one more win in away court in respect of their home games. These factors indicate evidence that home-court advantage might be present in this dataset and that the mean home and away win ratios are a sufficient variables for identifying it. Also, the number of games played by each team in home and away courts are not equal. Therefore, the winning ratio will also allow us to compare any existing difference between them.
+
+
+
+
+```{r teamstats, echo=FALSE, fig.height = 5, fig.width = 7, fig.align = "center", results= "hide"}
+# create a dataframe wich provide us with information of home and away about their total games , win ratio,
+#total win ratio, average final margin  and home win ratio of total games.
+y <- df12[c(1,2,3,5,6)]
+
+team_stats <- data.frame(matrix(ncol=10,nrow=30))
+
+colnames(team_stats) <- c("TEAMS","HOME_WINS","AWAY_WINS","TOTAL_HOME_GAMES","TOTAL_AWAY_GAMES","HOME_WIN_RATIO",
+                          "AWAY_WIN_RATIO", "DIFFRENCES_%","TOTAL_WIN_RATIO","AVERAGE_FINAL_MARGIN")
+
+team_names <- unique(df12[[3]])
+                         
+for(i in 1:30){
+    team_stats[i,1] <- toString(team_names[i])
+    temp <- y[which(y[[2]] == team_stats[i,1] & y[[5]] == "HOME"),]
+    team_stats[i,2] <- length(temp[[1]])
+    temp <- y[which(y[[3]] == team_stats[i,1] & y[[5]] == "AWAY"),]
+    team_stats[i,3] <- length(temp[[1]])
+    temp <- y[which(y[[2]] == team_stats[i,1]),]
+    team_stats[i,4] <- length(temp[[1]])
+    temp <- y[which(y[[3]] == team_stats[i,1]),]
+    team_stats[i,5] <- length(temp[[1]])
+    team_stats[i,6] <- team_stats[i,2] / (team_stats[i,4] )
+    team_stats[i,7] <- team_stats[i,3] / (team_stats[i,5])
+    team_stats[i,8] <- (team_stats [i,6] - team_stats[i,7])*100
+    team_stats[i,9] <- (team_stats [i,2] + team_stats [i,3]) / (team_stats [i,4] + team_stats [i,5])
+    temp <- y[which(y[[2]] == team_stats[i,1]),]
+    team_stats[i,10] <- sum(temp[[4]]) / length(temp[[4]])
+    
+    
+}
+
+
+team_stats[order(team_stats$TOTAL_WIN_RATIO),]
+
+summary(team_stats)
+
+```
+
+```{r winninratiodataframe, echo=FALSE, fig.height = 5, fig.width = 7, fig.align = "center", results= "hide"}
+
+# Create a data frame containg only the variables participating in the t-test
+winning_ratio <- data.frame( 
+                group = rep(c("HOME_WIN_RATIO", "AWAY_WIN_RATIO"), each = 30),
+                winning_ratio = c(team_stats$HOME_WIN_RATIO, team_stats$AWAY_WIN_RATIO),
+                wins = c(team_stats$HOME_WINS, team_stats$AWAY_WINS),
+                teams = c(team_stats$TEAMS, team_stats$TEAMS)
+                )
+
+
+
+```
+
+
+
+```{r ggplot , echo=FALSE, fig.height = 5, fig.width = 9, fig.cap = "Bar Plot showing wins of each team in  home and away court ", fig.align = "center"}
+
+
+# visualize the wins of home and away by teams 
+ggplot(winning_ratio, aes(x=teams, fill=group, y=wins , width = 0.4, size= 0.7,)) +
+  geom_bar(stat="identity", position=position_dodge())+
+  geom_text(aes(label=wins), vjust=4, color="black",
+            position = position_dodge(0.5), size=2)+
+  scale_fill_brewer(palette="Paired")+
+  theme_minimal() 
+
+
+
+
+```
+\newpage
+
+## Examination of  in respect of the game outcome{#sec:rest-day-sinferencial} 
+
+We want to examine whether playing at home court give an advantage at the outcome of the game. Therefore we will compair the the means for home and away wins with the independent Student’s t-test, test to to evaluate whether the means of home win ratio and away win ratio does not show any significant difference with H0:mA=mB, and alternative hypothesis Ha:mA>mB (greater) that the means of home win ratios is significantly different and greater than the means of away win ratios. The Shapiro-Wilk normality test is applied in both subsets with the two p-values=0.2022 and  p-values= 0.7004 both to be greater than the significance level 0.05 indicating that the distribution of the subsets are not significantly different from the normal distribution as we do not have enough evidence to reject H0. Therefore, we can assume the normality. F-test to test for homogeneity in variances is applied between the subsets with p-value of p = 0.3078. It’s greater than the significance level alpha = 0.05 implaying there is no significant difference between the variances of the two sets of data. Therefore, we can use the classic t-test which assume normaly distributed subsets and equality of the two variances. The value of the t-test is t = 2.6022 with degrees of freedom df= 58 , p-value= 0.00587 and confidence interval of the means at 95%.  P-value is less than the significance level alpha = 0.05. We can conclude that the mean of home win ratios is significantly different and higher than the means of the away win ratios. Therefore the home court advantage existis in this dataset and influence the game outcome. The Figure 2  clear illustrates what t-test found.
+
+```{r plotofqq , echo=FALSE,  fig.height = 5, fig.width = 9, fig.cap = "Boxplot to visualize the means of the home and away win with their respective observations appearing on the plot and the outliers have their teams labels visible."}
+options(repr.plot.width=15 , repr.plot.height=8)
+
+#qqplot to visualize the means of home and away win retio , their outliers and thiers labels.
+p <- ggboxplot(winning_ratio, x = "group", y = "winning_ratio", 
+          color = "group", palette = c("#00AFBB", "#E7B800"),
+          width = 0.6, size=1, add = "jitter",ylab = "Count", xlab = "Win ratio", 
+         label = "teams",                
+         label.select = list(top.up = 8, top.down = 8),
+         font.label = list(size = 9, face = "italic"), 
+         repel = TRUE )+
+         stat_summary(fun.data = function(x) data.frame(y=1, label = paste("Mean=", round(mean(x), 2))), geom="text") + 
+         theme(legend.position="none") +
+         theme(text = element_text(size = 8))
+                      
+
+p   
+```
+
+The performance of each team  is found and defined as the total wins a team had  expresed as a persentage of total games played. In this way we can order the teams by their ability  and find the best and worse teams of the regular season. The best eight teams are "CLE", "DAL", "LAC", "HOU", "POR", "MEM", "GSW", "ATL" and the eight with the lower performance are "DET", "DEN", "SAC", "ORL", "LAL", "MIN", "PHI", "NYK". Compairing them with the outliers is obvious that in both cases the upper outliers refering to best performed teams and the lower outliers to the lower performed teams. For thoses cases we assume that home court advantage is not signifintant as the best teams can perform equaly well on home and away court without the need of home court advantage and in the other case that those teams do not have many wins regurdless the home court advantage. This assumption can be tested by analising the difference between the home win ratio and the away win ratio of each team as Table 2 shows. We can clearly see that the differece between the ratios of home and away teams for the 25 teams out of the 30 is positive, indicating that they have more wins when playing at home confiring the t-test outcome. Only 5 teams have won more games in the away courts with maximun of 9.1% difference. There is a flacuation in the differences among the teams but there is a clear upturning trend from lower to higher performace teams indicating that home court advange is stronger in the best performing teams. If we seperate the teams into two categories best performnce (15 teams) and lower performace(15 teams), we can see that for the best performance teams the higest difference of 29% is appearing in "OKC" team  which is in posision 12 and for the lower performance teams the highest difference is 16,2% appearing in "BOS" team  which is in posision 16 of the overall rank. This indicates that the home advantage is stroger in best permorfance teams. 
+
+```{r , echo=FALSE, fig.height = 5, fig.width = 7, fig.align = "center", results= "hide"}
+# Shapiro-Wilk normality test for HOME_WIN_RATIO
+with(winning_ratio, shapiro.test(winning_ratio[group == "HOME_WIN_RATIO"]))
+# Shapiro-Wilk normality test for AWAY_WIN_RATIO
+with(winning_ratio, shapiro.test(winning_ratio[group == "AWAY_WIN_RATIO"])) 
+# F-test to compare two variances
+res.ftest <- var.test(winning_ratio ~ group, data = winning_ratio)
+res.ftest
+#Compute independent t-test.
+res <- t.test( team_stats$HOME_WIN_RATIO,team_stats$AWAY_WIN_RATIO, alternative = "greater", var.equal = TRUE)
+res
+```
+
+
+```{r , echo=FALSE, fig.height = 5, fig.width = 7, fig.align = "center", results= "hide"}
+# scatterplot
+#options(repr.plot.width=6, repr.plot.height=6)
+#plot(team_stats$TOTAL_WIN_RATIO , team_stats$HOME_WIN_RATIO, pch=19, col='blue', #xlab='TOTAL WIN RATIO OF A TEAM(QUALITY)', ylab='HOME WIN RATIO')
+#grid()
+
+# Split the data into training and test set
+set.seed(123)
+training.samples <- team_stats$HOME_WIN_RATIO %>%
+  createDataPartition(p = 0.8, list = FALSE)
+train.data  <- team_stats[training.samples, ]
+test.data <- team_stats[-training.samples, ]
+
+# linear regression of HOME_WIN_RATIO(y) and TOTAL_WIN_RATIO_TEAM_QUALITY(x)
+model<- lm( HOME_WIN_RATIO ~  TOTAL_WIN_RATIO, data = train.data )
+
+#summary(model)
+#summary(model)$coef
+
+#residuals <- resid(model) #List of residuals
+
+
+#plot(model,1)
+#plot(model,4)
+#plot(density(resid(model))) #A density plot
+#qqnorm(resid(model)) # A quantile normal plot - good for checking normality
+#qqline(resid(model))
+
+
+# Plot the fitted model
+#options(repr.plot.width=6, repr.plot.height=6)
+#plot(team_stats$TOTAL_WIN_RATIO, team_stats$HOME_WIN_RATIO, pch=19, col='blue', #xlab='TOTAL WIN RATIO OF A TEAM(QUALITY)', ylab='HOME WIN RATIO', cex=1.1, lwd=2)
+#icept <- model$coefficients[1]
+#slope <- model$coefficients[2]
+#points(team_stats$TOTAL_WIN_RATIO, model$fitted.values, pch=19, col='orange')
+#abline(a=icept, b=slope, lwd=2, col='red')
+
+# Plot residuals
+#options(repr.plot.width=12, repr.plot.height=6)
+#par(mfrow=c(1,2))
+#plot(team_stats$TOTAL_WIN_RATIO, model$residuals, pch=19, col='red', cex=1.2, #main='Residuals')
+#abline(h=0, lwd=1, col='black')
+#plot(model$fitted, model$residuals, pch=19, col='red', cex=1.2, main='Residuals vs Fitted')
+#abline(h=0, lwd=1, col='black')
+
+
+shapiro.test(model$residuals)
+
+dwtest(model, alternative='two.sided')
+
+bptest(model)
+
+# Make predictions
+predictions <- model %>% predict(test.data)
+# Model performance
+# (a) Compute the prediction error, RMSE
+RMSE(predictions, test.data$HOME_WIN_RATIO)
+
+# (b) Compute R-square
+R2(predictions, test.data$HOME_WIN_RATIO)
+
+
+#ggplot(team_stats, aes(x = TOTAL_WIN_RATIO, y = HOME_WIN_RATIO)) +
+#  geom_point() +
+#  stat_smooth()
+
+
+
+```
+
+
+
+```{r , echo=FALSE, fig.height = 5, fig.width = 7, fig.align = "center", results= "hide"}
+# finding the adjusted home court advantage 
+
+#
+for(i in 1:30){
+    team_stats[i,11] <- ((0.01682 + (1.08534*team_stats[i,9] )) )
+       
+}  
+
+names(team_stats)[11]<-paste("ADVANTAGE_adj")
+
+
+
+summary(df12$FINAL_MARGIN)
+
+team_statsorder<-team_stats[order(-team_stats$TOTAL_WIN_RATIO),]
+team_statsorder
+
+```
+
+
+
+```{r , echo=FALSE, fig.height = 5, fig.width = 7, fig.align = "center"}
+team_stats1 <- team_statsorder[1:5,c(1,6,8,9,11)]
+team_stats2 <- team_statsorder[25:30,c(1,6,8,9,11)]
+result<-rbind(team_stats1, team_stats2)
+result12 <-as.data.frame.matrix(result)
+
+knitr::kable(
+  result12, 
+  caption = "Summary table. The first 5 rows represent tha data explored for the  5 best performed teams and the rest rows showing the data of the 6 teams with lower performance .",
+  align = 'cccc', 
+  booktabs = TRUE)%>%kable_styling(latex_options = "HOLD_position")
+```
+
+As the above analysis outcome shows, the home-court advantage affects the game's outcome and shows higher values on the best-performed teams. To justify this outcome, we need to consider the ability (performance= total win ratio) of each team. A team's ability can outweigh the home advantage of its opponent if this team's ability is significantly lower. Therefore we want to find the adjusted home-court advantage to be able to compare its effect among the teams. We consider this value as the actual home court advantage. The home-court advange is calculated as the home win ratio. Therefore to find the home advantage for each team, we conduct a linear regression with the dependent variable of the home win ratio and as an independent variable the ability ( performance) of each team. The coefficient (b) of the team' ability can be interpreted as the average effect on the home win ratio. Therefore, the regression equation without the residuals can predict the home advantage adjusted to the team's ability. The regression model's standardised residuals show if the team's home advantage is above or below the home advantage predicted by the regression equation based on that team's ability. The summary indicates that the ability of a team is significantly associated with the dependent variable. The model is statistically good and reliable as Shapiro-Wilk test for normality, Durbin-Watson test for autocorrelation, and Breusch-Pagan test for homoscedasticity for the residuals have p-value=0.7062,  p-value= 0.3028 and p-value= 0.4273 respectively, suggests that there is no evidence that the residuals are not normally distributed, uncorrelated and heteroscedastic. Also, the model is well fitted to the data. The predictions made using the test data to evaluate the performance show Root Mean Squared Error = 0.0465 and  R-squared and adjusted R2 = 0.95.  
+
+Regression Equation:
+
+HOME_WIN_RATIO = 0.01682 + 1.08534∗TOTAL_WIN_RATIO 
+
+
+The coefficient (b) of team' ability can be interpreted as the average effect on the home win ratio. Therefore, an increase in the ability of 10 percentage points would suggest an increase in the home advantage of almost ten percentage points.
+
+After adjusting the home advantage for each team, there are significant differences between the adjusted and not adjusted home advantage. This indicates that the first observed value is influenced by the team's ability and do not present the actual values. Sixteen teams show a lower adjusted advantage than the original observation, and the rest of them a positive one. No team is observed to have the same adjusted and not home-court advantage indicating that the adjusted value is significant influence the home advantage and, therefore, the outcome of the game. The previous upturning trent from the lower to the better performed also exists, giving us evidence to support that the home advantage has a higher contribution on the best performing teams. Also, the adjusted home advantage shows a gradual reduction from best to lower performed teams without any overlap as they exist in the first observed value. Moreover, the bottom two performance teams showed a significant reduction of almost 3.3%. The biggest increase of 10% was observed in "CHI", which is also the only team with equal wins in home and away courts. 
+
+
+
+# Second part: Effect of rest days on game outcome{#sec:rest-days}
+
+## Descriptive analysis and methodology{#sec:rest-days-methodology}
+
+The second part of the analysis focuses on investigating whether the number of rest days between games affects the game's final outcome and, specifically, the team's winning ratio. A dataset is created containing the `GAME_ID`, `DATE`, `HOME_TEAM`, `TAWAY_TEAM` and `WINNER` columns without containing missing values. The date was transformed in order to allow us to find the number of rest days defined as the difference between the date of the current match and the date of the previous match minus one. We subtract one day as we consider it the travelling date. The rest days found are $0$, $1$, $2$, $3$, $4$, $7$, $8$, $9$, $10$ without containing the fist 30 games played which were given a discreet value of 30 in order to do not interfere with the real rest days. As a result, we have 1805 observations of the game played. The formula applied in ratios used in this part is the number of corresponding wins played after χ rest days ( total wins, home wins, away wins) expressed as a percentage of the total number of games played after χ number of rest days, where χ is the respective number of rest days found. Finally, we set the significance level at 0.05, which means that if the chosen statistic resulted in a p-value higher than the alpha level, we do not have enough evidence to reject the null hypothesis. 
+
+An inspection between the rest days of home and away teams among their games shows that away teams play more than twice back to back games ($300$) than the home teams ($127$), which can indicate that rest days might have a significant contribution to home advantage and game outcome. On average, teams have $0$ or $1$ day of rest between their games as the rest days distribution indicates shown in Table 3. Home teams play about $122$ games with one more day of rest and 28 games with two more days of rest than their opponents as shown in Table 3.
+
+
+```{r df22, echo=FALSE, fig.height = 5, fig.width = 7, fig.align = "center", results= "hide"}
+
+# create dataframe with the data needed
+df2 <- df[c(1,2,3,4,7,8,9,22,24)]
+
+
+# explore for missing values
+apply(apply(df2,2,is.na),2,sum)
+
+# strip out duplicates by game id
+df2 <- df2[!duplicated(df2[('GAME_ID')]),]
+
+
+
+#calulating number of rest days between games and add the column to the dataframe
+df2[, "DATE"] <- as.character(df2[, "DATE"])
+
+for (i in 1:nrow(df2)){
+    df2[i,10] <- as.Date(df2[i,2], format = "%B %d, %Y")    
+}
+
+
+names(df2)[10]<-paste("DATE_OF_THE_GAME")
+
+
+# save the dataframe ordered by the date
+df22 <-df2[order(df2$DATE_OF_THE_GAME),]
+```
+
+
+
+```{r rest, echo=FALSE,fig.height = 5, fig.width = 7, fig.align = "center", results= "hide"}
+# create new dataframe to explore rest days in relationship to teams, teams type, home and away wins
+rest <- data.frame(matrix(ncol = 5, nrow = 0))
+
+colnames(rest) <- c("Rest_Days","Team","Win","Home_Win", "Away_Win")
+
+
+team_names<-unique(df22[[3]])
+nrows<-0
+
+
+for(i in 1:30){
+
+    temp<-df22[which(df22$HOME_TEAM == toString(team_names[i]) | df22$AWAY_TEAM == toString(team_names[i])),]
+
+    for(j in 1:length(temp[[1]])){
+        nrows <- nrows + 1
+        if(j == 1){
+            rest[nrows,1] <-30
+        }
+        else{
+            rest[nrows,1] <- ((temp[j,10] - temp[j-1,10])-1)
+        }
+        
+       rest[nrows,2] <- toString(team_names[i])    
+        
+        if((temp[j,3] == toString(team_names[i]) & temp[j,9] == "HOME") |(temp[j,4] == toString(team_names[i]) & temp[j,9] == "AWAY")){
+            rest[nrows,3] <- "WIN"
+        }
+        else{
+            rest[nrows,3] <- "LOSS"
+        }
+        if( temp[j,9] == "HOME"){
+            rest[nrows,4] <- "HOME"
+        }
+        else{
+            rest[nrows,4] <- "NO WIN"
+        }
+        if( temp[j,9] == "AWAY"){
+            rest[nrows,5] <- "AWAY"
+        }
+        else{
+            rest[nrows,5] <- "NO WIN"
+        }
+        
+    }
+
+}
+
+
+# find the type of the team (home or away)
+for (i in 1:nrow(rest)) {
+    if ((rest$Win[i] == "WIN") & (rest$Home_Win[i] == "HOME")) rest$Team_Type[i] <- "HOME" 
+    if ((rest$Win[i] == "WIN") & (rest$Home_Win[i] == "NO WIN")) rest$Team_Type[i] <- "AWAY"
+    if ((rest$Win[i] == "LOSS") & (rest$Home_Win[i] == "HOME")) rest$Team_Type[i] <- "AWAY" 
+    if ((rest$Win[i] == "LOSS") & (rest$Home_Win[i] == "NO WIN")) rest$Team_Type[i] <- "HOME"
+}
+```
+
+
+
+```{r  frequencytablesmall, echo=FALSE}
+# Distribution of Days of Rest for Home and Visiting Teams.
+re <- table( rest$Team_Type , rest$Rest_Days)
+
+rer <-as.data.frame.matrix(re) 
+
+knitr::kable(
+  rer, 
+  caption = "Frequency of appearance of home and away teams in respect of the 11 categories of  rest days.",
+  align = 'cccc', 
+  booktabs = TRUE)%>%kable_styling(latex_options = "HOLD_position")
+```
+
+## Examination of rest days in respect of the game outcome{#sec:rest-days-inferencial}
+
+Analysis is conducted based on the total, home and away wins. The overall winning ratio in respect of rest days shows small variation for the 0,1,2,3 rest days with values approximately at 50%. For rest days between 4 and 8 winning ratio shows the highest values. Above eight days, the ratio reveals unbalanced fluctuation, and we consider that the effect of rest days do not contribute to the game outcome ,but the outcome is a result of the team's ability. An approximate same inverse behaviour is observed form the overall loss ratio. This indicates that the number of rest days when between 0 and 8 can affect a game's outcome. Specifically, the distribution of 0,1,2,3,4 rest days is expressing 95% of the total observation as Table 4 shows. Therefore we conclude that resting days between 0 and 4 can have a higher impact on the outcome of a game and the further analysis is based on them.
+
+
+
+We are interested in analyzing the distribution of the wins concerning the rest days and in examining if they are statistically significantly associated. The Pearson's chi-squared test is selected, as our data referring to categorical variables (number of rest days, the game outcome) with Null hypothesis(H0): number of rest days between the games and number of wins for each rest day category are independent. The Pearson's Chi-Square test has X2 (4) = 6.9637 and p= 0.1378 higher than the level of significance alpha = 0.05. Therefore, we conclude that the rest days and corresponding wins are independent as we do not have enough evidence to reject the H0.
+
+
+
+```{r Distributiontable, echo=FALSE, results="asis"}
+
+# create "restdays" which contains distributions and ratios of : rest days, wins, losses, home and away wins
+restdays <- data.frame(matrix(ncol = 11, nrow = 10))
+
+colnames(restdays) <- c("Rest_Days","Games","Distribution_Of_Rest_Days","Win","Loss","Win_Ratio","Loss_Ratio","Home_Win","Away_Win","Home_Win_Ratio","Away_Win_Ratio")
+
+rest_names <-unique(rest[[1]])
+
+for(i in 1:10){
+    restdays[i,1] <- toString(rest_names[i])
+    temp <- rest[which(rest$Rest_Days == restdays[i,1] ),]
+    restdays[i,2] <- length(temp[[1]])
+    a <- 1805
+    restdays[i,3] <- (restdays[i,2] / a)*100
+    temp <- rest[which(rest$Rest_Days == restdays[i,1] & rest[[3]] == "WIN"),]
+    restdays[i,4] <- length(temp[[1]])
+    temp <- rest[which(rest$Rest_Days == restdays[i,1]  &  rest[[3]] == "LOSS"),]
+    restdays[i,5] <- length(temp[[1]])
+    restdays[i,6] <- as.numeric(restdays[i,4] / (restdays[i,4]+ restdays[i,5]))
+    restdays[i,7] <-  as.numeric(restdays[i,5] / ( restdays[i,4]+ restdays[i,5]))
+    temp <- rest[which(rest$Rest_Days == restdays[i,1] & rest[[4]] == "HOME" ),]
+    restdays[i,8] <- length(temp[[1]])
+    temp <- rest[which(rest$Rest_Days == restdays[i,1] & rest[[5]] == "AWAY" ),]
+    restdays[i,9] <- length(temp[[1]])
+    restdays[i,10] <- as.numeric(restdays[i,8] / (restdays[i,8]+ restdays[i,9]))*100
+    restdays[i,11] <-  as.numeric(restdays[i,9] / ( restdays[i,8]+ restdays[i,9]))*100
+    
+
+}
+
+restdays <- restdays[order(as.numeric(restdays$Rest_Days)),]
+restdays1<-restdays[1:5,c(1,3,6,10,11)]
+
+restdays11<-data.frame(restdays1)
+
+knitr::kable(
+  restdays11, 
+  caption = 'Distribution of each category of the rest days in respect of home and away teams.',
+  align = 'cccc',
+  booktabs = TRUE)%>%kable_styling(latex_options = "HOLD_position") 
+```
+
+
+
+Based on the indications of the descriptive analysis that a potential relation exists we continue the analysis. As the Table 4 shows, overall wining ratio shows a gradual increase from 47.07% to 50.10% to 53.93% and 76.92% respectively for 0, 1, 2 and 4 days of rest, indicating positive relation. Win home ratio has a similar upturn. The away win ratio has a different behaviour showing hardly any difference between 0,1,2,3 days of rest with approximately 44.5% but the fourth rest days shows a significant drop in away wins. The reason for this decline can be due to each team's ability, the lack of court advantage or because those rest days are appearing in the middle of the season and teams are tired. A further study upon these factors is suggested to understand the away win ratio further.
+
+```{r restdaysandwin, echo=FALSE, fig.height = 5, fig.width = 9, fig.align = "center", results= "hide"}
+# create contingency table for Rest day and Wins from rest dataframe 
+rest_days_and_win <- table(rest$Rest_Days, rest$Win)
+
+
+#select rows that expres the 95% of the observations
+rest_days_and_win1<- rest_days_and_win[1:5,] 
+rest_days_and_win1
+
+# dataframe format
+rest_days_and_win2<-as.data.frame.matrix(rest_days_and_win)
+
+# marginal contingency table
+prop.rest_days_and_win <- prop.table(table(rest$Rest_Days, rest$Win), margin=2)*100
+```
+
+
+```{r balloonplot , echo=FALSE, fig.height = 5, fig.width = 9,fig.cap = "A graphical matrix of the distribution of games outcomes (loss or win) based on the rest days categories. Each cell contains a dot whose size reflects the relative magnitude of the corresponding component and the color is based on the obsevations each component holding", fig.align = "center"}
+
+
+# visualized the Contingency table
+ggballoonplot(rest_days_and_win2, fill = "value", 
+              xlab ="Outcome", ylab="Rest days")+
+  scale_fill_viridis_c(option = "C")
+
+```
+
+
+```{r chisq, echo=FALSE, fig.height = 5, fig.width = 9, fig.align = "center", results= "hide"}
+#Pearson's Chi-squared test
+chisq <- chisq.test(rest_days_and_win1)
+
+
+```
+
+The balloon plot of Figure 3 shows the high relative magnitude that 0,1,2 and 3 rest days have in relation to the outcome of a game as explained above and provide us with more evidence that those rest days are the corresponding main component of the rest days distribution. Therefore, we conclude that we have some evidence to indicate that the rest days and the game outcome show some dependence between them when the examination is done regarding the home wins.
+
+\newpage
+
+#  Conclusion 
+
+In this report, we examine two main issues. First, we examine whether playing at home court gives an advantage in the game's outcome, and it was concluded that a team playing at home is more likely to win with an average win probability of 56%. The Student's t-test with p-value= 0.00587 allows us to verify that the home court gives a higher advantage on the game's outcome. Analyzing the home-court advantage at the teams level, we observe that it shows a more substantial influence as the team performs better. Through logistic regression, we verify this behaviour, and we have enough evidence to support that the home-court advantage combined with high-performance teams, can significantly impact the outcome of a game. 
+
+Secondly, we examine how the number of rest days affects the outcome of the game. Resting days among 0 and 4 have the most decisive influence on the game outcome as they represent 95% of the observations. Pearson's chi-squared test conclude that we do not have enough evidence to support that the variables are dependent. When we analyze the data on the teams level for away and home wins, a relation was reviled between the 0,1,2,3,4 rest days with the home wins and with general wins but not with the away wins. Therefore we conclude that we have some evidence to indicate that the rest days and home game outcome show some dependance.
+
+Comparing our findings with the literature review, we can conclude that a home team's probability to win has been reduced to 56% for the season of 2014-2015 as it used to be at 65%  and fall to 60% in 2011, showing a steady decline behaviour. Moreover, the factors affecting the outcome of the game, like travelling and a home-court advantage, also appeared to be significant for the 2014-2015 session. The relation between the rest day and the game outcome might be affected by the improved travelling conditions allowing player to be more efficient with less rest days, but it still impacts the game outcome.
+
+
+# Reference
+
+Courneya, K.S. and Carron, A.V. (1992), ”The Home Advantage in Sport Competitions: a Literature Review,” Journal of Sport and Exercise Psychology, 14, 13-27.
+
+Harville, D.A., Smith, M.H. and Rubin, D.R. (1994), “The Home-Court Advantage: How Large Is It and Does it Vary from Team to Team?,” The American Statistician, 48, 22-29.
+
+Schwartz, B., & Barsky, S. F. (1977). The home advantage. Social Forces, 55(3), 641-661.
+
+Carron, A., Loughhead, T., & Bray, S. (2005). The home advantage in sports competitions: Courneya and Carron’s (1992) conceptual framework a decade later. Journal of Sports Sciences, 23(4), 395-407. 
+
+
